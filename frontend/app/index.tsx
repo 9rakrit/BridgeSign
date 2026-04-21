@@ -12,7 +12,7 @@ export default function Onboarding() {
 
   return (
     <View style={styles.root} testID="onboarding-screen">
-      <ImageBackground source={{ uri: HERO }} style={styles.hero} imageStyle={{ resizeMode: 'cover' }}>
+      <ImageBackground source={{ uri: HERO }} style={styles.hero} resizeMode="cover">
         <LinearGradient
           colors={['rgba(11,18,32,0.2)', 'rgba(11,18,32,0.95)', '#0B1220']}
           locations={[0, 0.7, 1]}
