@@ -40,7 +40,8 @@ export default function CameraHome() {
   const cameraRef = useRef<CameraView | null>(null);
 
   const [analyzing, setAnalyzing] = useState(false);
-  const [autoMode, setAutoMode] = useState(false);
+  const inFlightRef = useRef(false);
+  const [autoMode, setAutoMode] = useState(true);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [sentence, setSentence] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -64,14 +65,17 @@ export default function CameraHome() {
   }, [result, confidence, emotionConf]);
 
   const captureAndAnalyze = useCallback(async () => {
-    if (!cameraRef.current || analyzing) return;
+    if (!cameraRef.current) return;
+    if (inFlightRef.current) return; // skip if one is in flight
     try {
+      inFlightRef.current = true;
       setAnalyzing(true);
       setErrorMsg(null);
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
-        quality: 0.5,
+        quality: 0.2,
         skipProcessing: true,
+        shutterSound: false as any,
       });
       if (!photo?.base64) {
         throw new Error('Could not capture frame');
@@ -87,11 +91,10 @@ export default function CameraHome() {
       }
       const data: AnalyzeResult = await resp.json();
       setResult(data);
-      if (data.gesture_text && data.gesture_text.trim()) {
+      if (data.gesture_text && data.gesture_text.trim() && data.gesture_confidence >= 0.5) {
         setSentence((prev) => {
           const word = data.gesture_text.trim();
           if (!prev) return word;
-          // Avoid immediate duplicate
           const tokens = prev.split(' ');
           if (tokens[tokens.length - 1] === word) return prev;
           return prev + ' ' + word;
@@ -101,14 +104,17 @@ export default function CameraHome() {
       setErrorMsg(e?.message || 'Analysis failed');
     } finally {
       setAnalyzing(false);
+      inFlightRef.current = false;
     }
-  }, [analyzing]);
+  }, []);
 
   useEffect(() => {
     if (autoMode) {
+      // Fire immediately, then every 800ms (inFlight guard prevents overlap)
+      captureAndAnalyze();
       autoRef.current = setInterval(() => {
         captureAndAnalyze();
-      }, 4000);
+      }, 1500);
     } else if (autoRef.current) {
       clearInterval(autoRef.current);
       autoRef.current = null;

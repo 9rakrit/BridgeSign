@@ -79,7 +79,7 @@ export default function Settings() {
               <Ionicons name="hand-left" size={18} color="#0B1220" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>SignSense v1.0</Text>
+              <Text style={styles.cardTitle}>BridgeSign v1.0</Text>
               <Text style={styles.cardDesc}>
                 Emotion-Aware Sign Language Communication System.{'\n'}
                 For accessibility use only — not a medical device.

@@ -23,7 +23,7 @@ export default function Onboarding() {
             <View style={styles.brandBadge}>
               <Ionicons name="hand-left" size={22} color="#F8FAFC" />
             </View>
-            <Text style={styles.brand}>SignSense</Text>
+            <Text style={styles.brand}>BridgeSign</Text>
           </View>
         </SafeAreaView>
       </ImageBackground>
@@ -34,7 +34,7 @@ export default function Onboarding() {
           Speak through{'\n'}gesture <Text style={{ color: '#34C759' }}>&</Text> emotion.
         </Text>
         <Text style={styles.subtitle}>
-          SignSense uses your camera to recognise American Sign Language and detect facial emotion in real time — giving a voice to every expression.
+          BridgeSign uses your camera to recognise American Sign Language and detect facial emotion in real time — giving a voice to every expression.
         </Text>
 
         <View style={styles.features}>

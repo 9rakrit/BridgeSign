@@ -128,7 +128,7 @@ async def analyze_frame(req: AnalyzeRequest):
             api_key=EMERGENT_LLM_KEY,
             session_id=session_id,
             system_message=SYSTEM_PROMPT,
-        ).with_model("gemini", "gemini-2.5-pro")
+        ).with_model("gemini", "gemini-2.5-flash")
 
         image = ImageContent(image_base64=b64)
         user_message = UserMessage(
