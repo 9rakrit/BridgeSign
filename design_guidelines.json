@@ -1,0 +1,133 @@
+{
+  "theme": "Light & Camera-Overlay Hybrid",
+  "archetype": "Archetype 1 (Organic & Earthy)",
+  "rationale": "The app is an accessibility utility for non-verbal users. It requires high contrast, calming tones, large touch targets, and a completely unobstructed camera view. The core screen uses a dark/translucent overlay theme to guarantee text legibility over any real-world background.",
+  "colors": {
+    "background": "#FAFAFA",
+    "surface": "#FFFFFF",
+    "surface_glass": "rgba(250, 250, 250, 0.85)",
+    "overlay_glass": "rgba(0, 0, 0, 0.55)",
+    "text_primary_light": "#1C1C1E",
+    "text_secondary_light": "#48484A",
+    "text_primary_dark": "#FFFFFF",
+    "text_secondary_dark": "#EBEBF5",
+    "primary": "#3F4E4F",
+    "emotion_happy_neutral": "#34C759",
+    "emotion_sad": "#FF9500",
+    "emotion_distress_angry": "#FF3B30",
+    "emotion_surprise": "#AF52DE"
+  },
+  "typography": {
+    "heading_font": "Manrope",
+    "body_font": "IBM Plex Sans",
+    "scale": {
+      "h1": "36px, tight tracking, heavy weight",
+      "h2": "30px, tight tracking, bold",
+      "h3": "20px, semi-bold",
+      "body": "16px, relaxed line height",
+      "label": "14px, uppercase, wide tracking, medium weight"
+    }
+  },
+  "spacing_and_layout": {
+    "screen_padding": "16px or 24px (mobile standard)",
+    "touch_target_min": "56px (strict accessibility requirement for motor impairments)",
+    "border_radius": {
+      "sm": "8px",
+      "md": "16px",
+      "lg": "24px",
+      "full": "9999px"
+    }
+  },
+  "components": {
+    "camera_overlay_panel": {
+      "style": "Glassmorphism over camera: absolute positioning, bottom-0, w-full, pb-safe-area, pt-6, px-4. Background using Expo BlurView with 'dark' tint or rgba(0,0,0,0.55).",
+      "emotion_badge": "Floating badge, top-safe-area left-4. Uses Reanimated for smooth color transitions based on emotion state. Contains icon + text + confidence bar (width driven by shared value).",
+      "action_buttons": "Circular FABs (56x56 minimum) with solid background (white or primary) to ensure visibility over camera. Ambient shadow applied for depth."
+    },
+    "sentence_builder": {
+      "style": "Horizontal scroll view inside the bottom glass panel. Tap words to read aloud, Clear button on the right edge."
+    }
+  },
+  "screens": {
+    "Onboarding": {
+      "layout": "Vertical scroll, large imagery at top, clear typography. 'Next'/'Get Started' button sticky at bottom.",
+      "elements": [
+        "Hero image showing diverse sign language users.",
+        "Feature highlights (Real-time translation, Emotion tracking, TTS).",
+        "Large 'Get Started' CTA (min 56px height, rounded-full, primary color)."
+      ]
+    },
+    "Camera_Home": {
+      "layout": "Full screen Camera (Expo Camera). Absolute positioned UI overlays.",
+      "elements": [
+        "Top-Right: Settings Icon & Flip Camera Icon (translucent dark circles, white icons).",
+        "Top-Left: Emotion Badge (Dynamic color, confidence progress bar).",
+        "Bottom Panel: Translucent Expo BlurView container.",
+        "Bottom Panel -> Text output area (large white text, clear contrast).",
+        "Bottom Panel -> Controls: TTS Speak Button, Clear Button, Capture/Analyze Button (Prominent center FAB)."
+      ],
+      "alerts": [
+        "Caregiver Distress Alert: Slides down from top safe-area (z-index highest) with Red-Orange background if Distress+Help is detected."
+      ]
+    },
+    "History": {
+      "layout": "Standard List view on Light Background.",
+      "elements": [
+        "Header: 'Past Recognitions' (Manrope h2).",
+        "List items: Timestamp, Detected Text, Emotion Icon. Clean 1px divider lines (#E5E5EA)."
+      ]
+    },
+    "Settings": {
+      "layout": "Grouped list view on Light Background.",
+      "elements": [
+        "Auto-analyze toggle (Switch component).",
+        "Interval slider.",
+        "Caregiver contact setup.",
+        "Voice selection for TTS."
+      ]
+    }
+  },
+  "animations": {
+    "framework": "react-native-reanimated",
+    "details": "Use useSharedValue and withTiming for confidence bar widths and emotion badge background colors. Use entering/exiting layout animations (FadeInDown/FadeOutUp) for text chunks appearing in the sentence builder."
+  },
+  "icons": {
+    "library": "@expo/vector-icons (Ionicons)",
+    "usage": "Use clear, recognizable icons: 'volume-high' for TTS, 'camera-reverse' for flip, 'close-circle' for clear, 'alert-circle' for distress."
+  },
+  "image_urls": {
+    "onboarding_sign_language": {
+      "url": "https://images.pexels.com/photos/9017056/pexels-photo-9017056.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Person demonstrating ASL in a black jacket",
+      "category": "onboarding_hero"
+    },
+    "onboarding_smiling": {
+      "url": "https://images.pexels.com/photos/7047890/pexels-photo-7047890.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling person outdoors",
+      "category": "onboarding_emotion_example"
+    }
+  },
+  "accessibility_testing": {
+    "data_testids": [
+      "camera-preview",
+      "emotion-badge",
+      "recognized-text-output",
+      "tts-speak-button",
+      "clear-text-button",
+      "capture-frame-button",
+      "distress-alert-banner",
+      "history-list-item",
+      "settings-auto-analyze-toggle"
+    ],
+    "contrast_notes": "All text over the camera MUST use a semi-transparent dark backing layer (or strict text shadow) to guarantee readability regardless of camera feed lighting (APCA contrast requirement)."
+  },
+  "instructions_to_main_agent": [
+    "Use expo-camera for the main view.",
+    "Implement the UI using React Native standard components (View, Text, TouchableOpacity/Pressable) styled with either Tailwind (via NativeWind) or StyleSheet.",
+    "Do NOT use web components like Shadcn, HTML tags, or browser-specific CSS.",
+    "Use Expo BlurView for glassmorphism panels over the camera.",
+    "Implement smooth animations for the confidence bar using react-native-reanimated.",
+    "Ensure all touch targets (buttons, icons) have a minimum dimension of 56x56 pixels for motor-accessibility.",
+    "Attach testID attributes to all interactive elements matching the accessibility_testing data_testids."
+  ]
+}
