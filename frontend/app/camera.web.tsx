@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { HandLandmarker, FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL as string;
 
@@ -69,8 +69,11 @@ export default function CameraWeb() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const landmarkerRef = useRef<HandLandmarker | null>(null);
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameTsRef = useRef<number>(0);
+  const lastLetterRef = useRef<string>('');
+  const lastEmotionRef = useRef<Emotion>('Neutral');
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +133,18 @@ export default function CameraWeb() {
           runningMode: 'VIDEO',
         });
         landmarkerRef.current = lm;
+
+        const fl = await FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU',
+          },
+          outputFaceBlendshapes: true,
+          numFaces: 1,
+          runningMode: 'VIDEO',
+        });
+        faceLandmarkerRef.current = fl;
         if (mounted) {
           setReady(true);
           requestAnimationFrame(loop);
@@ -143,6 +158,7 @@ export default function CameraWeb() {
       const v = videoRef.current;
       const c = canvasRef.current;
       const lmer = landmarkerRef.current;
+      const fLmer = faceLandmarkerRef.current;
       if (v && c && lmer && v.readyState >= 2) {
         if (ts - lastFrameTsRef.current >= 30) { // ~30 FPS cap
           lastFrameTsRef.current = ts;
@@ -156,14 +172,36 @@ export default function CameraWeb() {
               if (result.landmarks && result.landmarks.length > 0) {
                 drawLandmarks(ctx, result.landmarks[0], c.width, c.height);
                 const letter = classifyHand(result.landmarks[0] as any);
-                const conf = letter ? 0.9 : 0.0;
-                setCurrentLetter(letter);
-                setLetterConf(conf);
+                if (letter !== lastLetterRef.current) {
+                  lastLetterRef.current = letter;
+                  setCurrentLetter(letter);
+                  setLetterConf(letter ? 0.9 : 0);
+                }
                 handleStability(letter);
               } else {
-                setCurrentLetter('');
-                setLetterConf(0);
+                if (lastLetterRef.current !== '') {
+                  lastLetterRef.current = '';
+                  setCurrentLetter('');
+                  setLetterConf(0);
+                }
                 handleStability('');
+              }
+            }
+
+            // Real-time emotion via FaceLandmarker blendshapes
+            if (fLmer) {
+              const fr = fLmer.detectForVideo(v, ts);
+              const cats = fr.faceBlendshapes?.[0]?.categories;
+              if (cats && cats.length > 0) {
+                const bs: Record<string, number> = {};
+                for (const k of cats) bs[k.categoryName] = k.score;
+                const emo = classifyEmotion(bs);
+                if (emo.label !== lastEmotionRef.current) {
+                  lastEmotionRef.current = emo.label;
+                  setEmotion(emo.label);
+                }
+                setEmotionConf(emo.conf);
+                setDistress(emo.distress);
               }
             }
           } catch {
@@ -179,6 +217,7 @@ export default function CameraWeb() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (stream) stream.getTracks().forEach((t) => t.stop());
       landmarkerRef.current?.close?.();
+      faceLandmarkerRef.current?.close?.();
     };
   }, [facing]);
 
@@ -206,45 +245,7 @@ export default function CameraWeb() {
     });
   };
 
-  // Periodic emotion polling (every 2.5s) — uses backend Gemini.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const v = videoRef.current;
-        const cap = captureCanvasRef.current;
-        if (v && cap && v.videoWidth) {
-          const w = 320;
-          const h = Math.round((v.videoHeight / v.videoWidth) * w);
-          cap.width = w;
-          cap.height = h;
-          const ctx = cap.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(v, 0, 0, w, h);
-            const dataUrl = cap.toDataURL('image/jpeg', 0.6);
-            const b64 = dataUrl.split(',')[1];
-            const resp = await fetch(`${BACKEND_URL}/api/analyze`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image_base64: b64 }),
-            });
-            if (resp.ok) {
-              const data = await resp.json();
-              if (!cancelled) {
-                setEmotion((data.emotion as Emotion) || 'Neutral');
-                setEmotionConf(Number(data.emotion_confidence || 0));
-                setDistress(Boolean(data.distress));
-              }
-            }
-          }
-        }
-      } catch { /* swallow */ }
-    };
-    const id = setInterval(tick, 2500);
-    tick();
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  // Emotion now comes from on-device FaceLandmarker blendshapes — no cloud polling.
 
   const speak = () => {
     const txt = sentence.trim();
@@ -410,7 +411,40 @@ export default function CameraWeb() {
   );
 }
 
-// Draw 21 landmarks + 21 connecting bones onto the overlay canvas.
+// Map MediaPipe FaceLandmarker blendshapes → emotion in real-time.
+function classifyEmotion(bs: Record<string, number>): { label: Emotion; conf: number; distress: boolean } {
+  const smile = Math.max(bs.mouthSmileLeft || 0, bs.mouthSmileRight || 0);
+  const frown = Math.max(bs.mouthFrownLeft || 0, bs.mouthFrownRight || 0);
+  const browDown = Math.max(bs.browDownLeft || 0, bs.browDownRight || 0);
+  const browInnerUp = bs.browInnerUp || 0;
+  const browOuterUp = Math.max(bs.browOuterUpLeft || 0, bs.browOuterUpRight || 0);
+  const jawOpen = bs.jawOpen || 0;
+  const eyeWide = Math.max(bs.eyeWideLeft || 0, bs.eyeWideRight || 0);
+  const mouthOpen = Math.max(bs.mouthOpen || 0, jawOpen);
+
+  // Surprise: wide eyes + raised brows + open mouth
+  if (eyeWide > 0.4 && (browInnerUp > 0.3 || browOuterUp > 0.3) && mouthOpen > 0.25) {
+    return { label: 'Surprise', conf: Math.min(1, (eyeWide + mouthOpen) / 1.5), distress: false };
+  }
+  // Angry: brows down hard + jaw clenched/opened slightly
+  if (browDown > 0.45 && smile < 0.15) {
+    return { label: 'Angry', conf: Math.min(1, browDown + 0.2), distress: true };
+  }
+  // Fear: inner brows up + eyes wide-ish + no smile
+  if (browInnerUp > 0.5 && eyeWide > 0.25 && smile < 0.15) {
+    return { label: 'Fear', conf: Math.min(1, browInnerUp), distress: true };
+  }
+  // Sad: frown or inner-brow up without smile
+  if (frown > 0.25 || (browInnerUp > 0.35 && smile < 0.1)) {
+    return { label: 'Sad', conf: Math.min(1, Math.max(frown, browInnerUp) + 0.2), distress: false };
+  }
+  // Happy: clear smile
+  if (smile > 0.35) {
+    return { label: 'Happy', conf: Math.min(1, smile + 0.2), distress: false };
+  }
+  return { label: 'Neutral', conf: 0.6, distress: false };
+}
+
 const HAND_BONES: [number, number][] = [
   [0,1],[1,2],[2,3],[3,4],
   [0,5],[5,6],[6,7],[7,8],
