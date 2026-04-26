@@ -22,43 +22,37 @@ const EMOTION_META: Record<Emotion, { color: string; icon: any }> = {
 };
 
 // Geometric ASL classifier from 21 hand landmarks (MediaPipe Hands).
+// Uses joint-angle (dot-product) test for finger extension — robust against scale.
 type LM = { x: number; y: number; z: number };
+function isExtended(lm: LM[], mcp: number, pip: number, tip: number): boolean {
+  const v1x = lm[mcp].x - lm[pip].x, v1y = lm[mcp].y - lm[pip].y;
+  const v2x = lm[tip].x - lm[pip].x, v2y = lm[tip].y - lm[pip].y;
+  return (v1x * v2x + v1y * v2y) < 0;
+}
 function classifyHand(lm: LM[]): string {
   if (!lm || lm.length < 21) return '';
   const dist = (a: LM, b: LM) => Math.hypot(a.x - b.x, a.y - b.y);
-  const fingers = [
-    { tip: 4, pip: 3, mcp: 2 },   // thumb
-    { tip: 8, pip: 6, mcp: 5 },   // index
-    { tip: 12, pip: 10, mcp: 9 }, // middle
-    { tip: 16, pip: 14, mcp: 13 },// ring
-    { tip: 20, pip: 18, mcp: 17 },// pinky
-  ];
-  const ext = fingers.map((f) => {
-    const tipMcp = dist(lm[f.tip], lm[f.mcp]);
-    const pipMcp = dist(lm[f.pip], lm[f.mcp]);
-    return tipMcp > pipMcp * 1.25;
-  });
-  const [t, i, m, r, p] = ext;
   const handSize = dist(lm[0], lm[9]);
-  const spreadIM = dist(lm[8], lm[12]) > handSize * 0.45;
+  const t = dist(lm[4], lm[5]) > handSize * 0.55;
+  const i = isExtended(lm, 5, 6, 8);
+  const m = isExtended(lm, 9, 10, 12);
+  const r = isExtended(lm, 13, 14, 16);
+  const p = isExtended(lm, 17, 18, 20);
 
-  // Multi-finger word: 5 fingers open → HELLO (open palm wave)
-  if (t && i && m && r && p) return 'HELLO';
-  // Y: thumb + pinky out
-  if (t && !i && !m && !r && p) return 'Y';
-  // L: thumb + index, perpendicular
-  if (t && i && !m && !r && !p) return 'L';
-  // D: only index up
-  if (!t && i && !m && !r && !p) return 'D';
-  // U / V: index + middle
-  if (!t && i && m && !r && !p) return spreadIM ? 'V' : 'U';
-  // W: index + middle + ring
+  if (i && m && r && p) {
+    const totalSpread = dist(lm[8], lm[12]) + dist(lm[12], lm[16]) + dist(lm[16], lm[20]);
+    if (t && totalSpread > handSize * 1.3) return 'HELLO';
+    return 'B';
+  }
   if (!t && i && m && r && !p) return 'W';
-  // B: 4 fingers up, thumb tucked
-  if (!t && i && m && r && p) return 'B';
-  // I: only pinky up
+  if (!t && i && m && !r && !p) {
+    const spread = dist(lm[8], lm[12]) > handSize * 0.45;
+    return spread ? 'V' : 'U';
+  }
+  if (t && !i && !m && !r && p) return 'Y';
+  if (t && i && !m && !r && !p) return 'L';
+  if (!t && i && !m && !r && !p) return 'D';
   if (!t && !i && !m && !r && p) return 'I';
-  // A: closed fist (no extended fingers) or thumb only
   if (!i && !m && !r && !p) return 'A';
   return '';
 }
