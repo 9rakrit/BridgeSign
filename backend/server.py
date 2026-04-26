@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -183,6 +184,10 @@ async def clear_history():
 
 
 app.include_router(api_router)
+
+# Serve static files (e.g. WebView recognizer.html) under /api/static/* so the
+# Kubernetes ingress routes them to the backend.
+app.mount("/api/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 
 app.add_middleware(
     CORSMiddleware,
