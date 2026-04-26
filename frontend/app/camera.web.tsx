@@ -22,7 +22,8 @@ const EMOTION_META: Record<Emotion, { color: string; icon: any }> = {
 };
 
 // Geometric ASL classifier from 21 hand landmarks (MediaPipe Hands).
-// Uses joint-angle (dot-product) test for finger extension — robust against scale.
+// Joint-angle (dot-product) test for finger extension. Differentiates A/E/M/N/S/T
+// by thumb position, and G/H by hand orientation. Adds K, R, F.
 type LM = { x: number; y: number; z: number };
 function isExtended(lm: LM[], mcp: number, pip: number, tip: number): boolean {
   const v1x = lm[mcp].x - lm[pip].x, v1y = lm[mcp].y - lm[pip].y;
@@ -31,29 +32,62 @@ function isExtended(lm: LM[], mcp: number, pip: number, tip: number): boolean {
 }
 function classifyHand(lm: LM[]): string {
   if (!lm || lm.length < 21) return '';
-  const dist = (a: LM, b: LM) => Math.hypot(a.x - b.x, a.y - b.y);
-  const handSize = dist(lm[0], lm[9]);
-  const t = dist(lm[4], lm[5]) > handSize * 0.55;
+  const d = (a: LM, b: LM) => Math.hypot(a.x - b.x, a.y - b.y);
+  const hs = d(lm[0], lm[9]);
+  const t = d(lm[4], lm[5]) > hs * 0.55;
   const i = isExtended(lm, 5, 6, 8);
   const m = isExtended(lm, 9, 10, 12);
   const r = isExtended(lm, 13, 14, 16);
   const p = isExtended(lm, 17, 18, 20);
+  const allClosed = !i && !m && !r && !p;
+
+  const W = lm[0], TT = lm[4], IT = lm[8], MT = lm[12], RT = lm[16], PT = lm[20];
+  const IM = lm[5], MM = lm[9], RM = lm[13], PM = lm[17];
+  const IP = lm[6], MP = lm[10];
+
+  const ox = MM.x - W.x, oy = MM.y - W.y;
+  const handAngle = Math.atan2(ox, -oy);
+  const horizontal = Math.abs(handAngle) > Math.PI * 0.35;
+
+  if (allClosed) {
+    const tipsToThumb = (d(IT, TT) + d(MT, TT) + d(RT, TT) + d(PT, TT)) / 4;
+    if (tipsToThumb < hs * 0.45) return 'E';
+    if (TT.y > RT.y - hs * 0.05 && d(TT, RM) < hs * 0.45) return 'M';
+    if (TT.y > MT.y - hs * 0.05 && TT.y < RT.y - hs * 0.05 && d(TT, MM) < hs * 0.45) return 'N';
+    const thumbBetween =
+      d(TT, IP) < hs * 0.5 &&
+      TT.x > Math.min(IM.x, MM.x) - hs * 0.1 &&
+      TT.x < Math.max(IM.x, MM.x) + hs * 0.1 &&
+      TT.y < IM.y + hs * 0.1;
+    if (thumbBetween) return 'T';
+    if (d(TT, MM) < hs * 0.5 && d(TT, IM) < hs * 0.6 && d(TT, RM) < hs * 0.6) return 'S';
+    return 'A';
+  }
 
   if (i && m && r && p) {
-    const totalSpread = dist(lm[8], lm[12]) + dist(lm[12], lm[16]) + dist(lm[16], lm[20]);
-    if (t && totalSpread > handSize * 1.3) return 'HELLO';
+    const spread = d(IT, MT) + d(MT, RT) + d(RT, PT);
+    if (t && spread > hs * 1.3) return 'HELLO';
     return 'B';
   }
+  if (!i && m && r && p && d(TT, IT) < hs * 0.3) return 'F';
   if (!t && i && m && r && !p) return 'W';
-  if (!t && i && m && !r && !p) {
-    const spread = dist(lm[8], lm[12]) > handSize * 0.45;
-    return spread ? 'V' : 'U';
+
+  if (i && m && !r && !p) {
+    if (horizontal) return 'H';
+    const dxI = IT.x - IM.x, dxM = MT.x - MM.x;
+    if (Math.sign(dxI) !== 0 && Math.sign(dxM) !== 0 &&
+        Math.sign(dxI) !== Math.sign(dxM) &&
+        (Math.abs(dxI) + Math.abs(dxM)) > hs * 0.15) return 'R';
+    if (t && d(TT, MP) < hs * 0.4) return 'K';
+    return d(IT, MT) > hs * 0.4 ? 'V' : 'U';
   }
-  if (t && !i && !m && !r && p) return 'Y';
+
+  if (i && !m && !r && !p) {
+    if (horizontal) return 'G';
+    return 'D';
+  }
+  if (!i && !m && !r && p) return t ? 'Y' : 'I';
   if (t && i && !m && !r && !p) return 'L';
-  if (!t && i && !m && !r && !p) return 'D';
-  if (!t && !i && !m && !r && p) return 'I';
-  if (!i && !m && !r && !p) return 'A';
   return '';
 }
 

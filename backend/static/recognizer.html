@@ -166,60 +166,113 @@
   document.getElementById('speak').onclick = () => RN({ type: 'tts', text: sentence });
 
   // ---- ASL classifier (MediaPipe Hands 21 landmarks) ----
-  // Robust finger-extension test: at the PIP joint, the vectors PIP→MCP and PIP→TIP
-  // point in OPPOSITE directions when the finger is straight (negative dot product),
-  // and in the SAME direction when curled (positive dot product).
+  // Joint-angle (dot-product) extension test: at the PIP joint, vectors PIP→MCP
+  // and PIP→TIP are opposite when finger is straight (negative dot), same direction
+  // when curled (positive dot).
   function isExtended(lm, mcp, pip, tip) {
     const v1x = lm[mcp].x - lm[pip].x, v1y = lm[mcp].y - lm[pip].y;
     const v2x = lm[tip].x - lm[pip].x, v2y = lm[tip].y - lm[pip].y;
     return (v1x * v2x + v1y * v2y) < 0;
   }
-  // Thumb extended if the tip is meaningfully far from the index-finger MCP.
   function isThumbExtended(lm) {
-    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-    const handSize = dist(lm[0], lm[9]);
-    return dist(lm[4], lm[5]) > handSize * 0.55;
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const hs = d(lm[0], lm[9]);
+    return d(lm[4], lm[5]) > hs * 0.55;
   }
 
   function classifyHand(lm) {
     if (!lm || lm.length < 21) return '';
-    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const hs = d(lm[0], lm[9]); // hand size = wrist→middle MCP
 
     const t = isThumbExtended(lm);
     const i = isExtended(lm, 5, 6, 8);
     const m = isExtended(lm, 9, 10, 12);
     const r = isExtended(lm, 13, 14, 16);
     const p = isExtended(lm, 17, 18, 20);
-    const handSize = dist(lm[0], lm[9]);
+    const allClosed = !i && !m && !r && !p;
 
-    // HELLO: open palm — all 4 fingers extended AND fingers visibly spread out
-    // (otherwise B is misread as HELLO).
+    const W = lm[0], TT = lm[4], IT = lm[8], MT = lm[12], RT = lm[16], PT = lm[20];
+    const IM = lm[5], MM = lm[9], RM = lm[13], PM = lm[17];
+    const IP = lm[6], MP = lm[10];
+
+    // Hand orientation — angle of wrist→middle-MCP from "up".
+    // 0 ≈ fingers point up, ±π/2 ≈ fingers point sideways (G/H pose).
+    const ox = MM.x - W.x, oy = MM.y - W.y;
+    const handAngle = Math.atan2(ox, -oy);
+    const horizontal = Math.abs(handAngle) > Math.PI * 0.35;
+
+    // ===== Closed-fist family: A, E, M, N, S, T =====
+    if (allClosed) {
+      // E: all 4 fingertips clenched toward the thumb (tight claw)
+      const tipsToThumb = (d(IT, TT) + d(MT, TT) + d(RT, TT) + d(PT, TT)) / 4;
+      if (tipsToThumb < hs * 0.45) return 'E';
+
+      // M: thumb tip is tucked under THREE fingertips (index, middle, ring drape over thumb)
+      // → thumb tip is at or below ring fingertip in y, and close to ring MCP horizontally
+      if (TT.y > RT.y - hs * 0.05 && d(TT, RM) < hs * 0.45) return 'M';
+
+      // N: thumb tip is tucked under TWO fingertips (index, middle drape over thumb)
+      if (TT.y > MT.y - hs * 0.05 && TT.y < RT.y - hs * 0.05 && d(TT, MM) < hs * 0.45) return 'N';
+
+      // T: thumb tip between index and middle (poking up through them)
+      const thumbBetween =
+        d(TT, IP) < hs * 0.5 &&
+        TT.x > Math.min(IM.x, MM.x) - hs * 0.1 &&
+        TT.x < Math.max(IM.x, MM.x) + hs * 0.1 &&
+        TT.y < IM.y + hs * 0.1;
+      if (thumbBetween) return 'T';
+
+      // S: thumb wrapped over the FRONT of the fist (tip near middle MCP, on the palm side)
+      if (d(TT, MM) < hs * 0.5 && d(TT, IM) < hs * 0.6 && d(TT, RM) < hs * 0.6) return 'S';
+
+      // A: default closed fist (thumb on the side)
+      return 'A';
+    }
+
+    // ===== Four fingers up =====
     if (i && m && r && p) {
-      const spreadIM = dist(lm[8], lm[12]);
-      const spreadMR = dist(lm[12], lm[16]);
-      const spreadRP = dist(lm[16], lm[20]);
-      const totalSpread = spreadIM + spreadMR + spreadRP;
-      if (t && totalSpread > handSize * 1.3) return 'HELLO';
-      return 'B'; // 4 fingers up, thumb may be tucked or out → "B"
+      const spread = d(IT, MT) + d(MT, RT) + d(RT, PT);
+      if (t && spread > hs * 1.3) return 'HELLO';
+      return 'B';
     }
 
-    // W: index + middle + ring up
-    if (!t && i && m && r && !p) return 'W';
-    // V vs U: index + middle up
-    if (!t && i && m && !r && !p) {
-      const spread = dist(lm[8], lm[12]) > handSize * 0.45;
-      return spread ? 'V' : 'U';
+    // F: index curled to touch thumb, middle+ring+pinky extended
+    if (!i && m && r && p) {
+      if (d(TT, IT) < hs * 0.3) return 'F';
     }
-    // Y: thumb + pinky out
-    if (t && !i && !m && !r && p) return 'Y';
-    // L: thumb + index up
+
+    // W: 3 fingers up
+    if (!t && i && m && r && !p) return 'W';
+
+    // K / V / U / R / H: index + middle up
+    if (i && m && !r && !p) {
+      if (horizontal) return 'H'; // sideways orientation = H
+      // R: index and middle crossed (their tips are on opposite sides of their MCPs)
+      const dxI = IT.x - IM.x, dxM = MT.x - MM.x;
+      if (Math.sign(dxI) !== 0 && Math.sign(dxM) !== 0 &&
+          Math.sign(dxI) !== Math.sign(dxM) &&
+          (Math.abs(dxI) + Math.abs(dxM)) > hs * 0.15) return 'R';
+      // K: thumb extended near the middle finger's PIP (between index & middle)
+      if (t && d(TT, MP) < hs * 0.4) return 'K';
+      // V (spread) vs U (together)
+      return d(IT, MT) > hs * 0.4 ? 'V' : 'U';
+    }
+
+    // G / D / X: index up only
+    if (i && !m && !r && !p) {
+      if (horizontal) return 'G'; // sideways index = G (thumb usually parallel)
+      return 'D';
+    }
+
+    // I / Y: pinky up
+    if (!i && !m && !r && p) {
+      return t ? 'Y' : 'I';
+    }
+
+    // L: thumb + index, perpendicular
     if (t && i && !m && !r && !p) return 'L';
-    // D: only index up
-    if (!t && i && !m && !r && !p) return 'D';
-    // I: only pinky up
-    if (!t && !i && !m && !r && p) return 'I';
-    // A: closed fist (no fingers extended)
-    if (!i && !m && !r && !p) return 'A';
+
     return '';
   }
 
